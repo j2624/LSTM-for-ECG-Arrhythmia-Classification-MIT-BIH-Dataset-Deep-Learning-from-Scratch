@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LSTM for ECG Arrhythmia Classification</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=JetBrains+Mono:wght@400;600&family=Inter:wght@300;400;600;700&display=swap');
+
+  :root {
+    --bg: #050510;
+    --bg2: #0a0a1a;
+    --cyan: #00f5ff;
+    --purple: #b44fff;
+    --green: #00ff88;
+    --amber: #ffb700;
+    --red: #ff4466;
+    --text: #e0e0ff;
+    --muted: #7070aa;
+    --card: rgba(255,255,255,0.05);
+    --border: rgba(0,245,255,0.15);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #progress-bar {
+    position: fixed;
+    top: 0; left: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--cyan), var(--purple));
+    transition: width 0.4s ease;
+    z-index: 100;
+  }
+
+  #slide-counter {
+    position: fixed;
+    top: 16px; right: 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    color: var(--muted);
+    z-index: 100;
+  }
+
+  #slide-area {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 55px 40px 75px;
+    overflow: hidden;
+  }
+
+  .slide { display: none; width: 100%; max-width: 1100px; animation: fadeIn 0.5s ease; }
+  .slide.active { display: flex; flex-direction: column; align-items: center; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+
+  .slide-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    color: var(--cyan);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 46px;
+    font-weight: 900;
+    line-height: 1.15;
+    text-align: center;
+    background: linear-gradient(135deg, var(--cyan), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 18px;
+  }
+
+  h2 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--cyan);
+    text-align: center;
+    margin-bottom: 22px;
+  }
+
+  h3 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 20px;
+    color: var(--purple);
+    margin-bottom: 12px;
+  }
+
+  p.lead { font-size: 20px; line-height: 1.85; color: var(--text); text-align: center; max-width: 780px; margin-bottom: 20px; }
+  p.body { font-size: 17px; line-height: 1.85; color: var(--text); max-width: 820px; }
+
+  .card-grid { display: grid; gap: 16px; width: 100%; max-width: 1000px; margin-top: 10px; }
+  .card-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+  .card-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .card-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--cyan), var(--purple)); }
+  .card.green::before { background: linear-gradient(90deg, var(--green), var(--cyan)); }
+  .card.amber::before { background: var(--amber); }
+  .card.red::before { background: var(--red); }
+  .card.purple::before { background: linear-gradient(90deg, var(--purple), var(--red)); }
+
+  .card-icon { font-size: 30px; margin-bottom: 10px; }
+  .card-title { font-family: 'Orbitron', monospace; font-size: 14px; color: var(--cyan); margin-bottom: 10px; letter-spacing: 1px; }
+  .card-body { font-size: 15px; line-height: 1.75; color: var(--text); }
+  .card-val { font-family: 'JetBrains Mono', monospace; font-size: 30px; font-weight: 700; color: var(--green); margin-bottom: 6px; }
+  .card-label { font-size: 14px; color: var(--muted); }
+
+  table { width: 100%; max-width: 900px; border-collapse: collapse; font-size: 15px; margin-top: 10px; }
+  th { font-family: 'JetBrains Mono', monospace; font-size: 13px; letter-spacing: 2px; color: var(--cyan); border-bottom: 1px solid var(--border); padding: 12px 16px; text-align: left; }
+  td { padding: 11px 16px; border-bottom: 1px solid rgba(255,255,255,0.04); color: var(--text); font-size: 15px; }
+  tr:hover td { background: rgba(0,245,255,0.03); }
+
+  .badge { display: inline-block; padding: 3px 12px; border-radius: 20px; font-size: 13px; font-family: 'JetBrains Mono', monospace; }
+  .badge-green { background: rgba(0,255,136,0.15); color: var(--green); }
+  .badge-red { background: rgba(255,68,102,0.15); color: var(--red); }
+  .badge-amber { background: rgba(255,183,0,0.15); color: var(--amber); }
+  .badge-cyan { background: rgba(0,245,255,0.15); color: var(--cyan); }
+
+  .ecg-line { width: 100%; max-width: 700px; height: 80px; margin: 20px auto; }
+  .ecg-path { stroke: var(--cyan); stroke-width: 2; fill: none; stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: drawECG 3s ease forwards; }
+  @keyframes drawECG { to { stroke-dashoffset: 0; } }
+
+  .arch-flow { display: flex; flex-direction: column; align-items: center; gap: 0; width: 100%; max-width: 600px; }
+  .arch-box { width: 100%; padding: 16px 20px; border-radius: 10px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 15px; border: 1px solid var(--border); background: var(--card); }
+  .arch-box.input { border-color: var(--green); color: var(--green); }
+  .arch-box.lstm { border-color: var(--cyan); color: var(--cyan); }
+  .arch-box.dropout { border-color: var(--amber); color: var(--amber); }
+  .arch-box.output { border-color: var(--purple); color: var(--purple); }
+  .arch-arrow { width: 2px; height: 20px; background: var(--muted); position: relative; }
+  .arch-arrow::after { content: '▼'; position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); color: var(--muted); font-size: 10px; }
+
+  .bar-chart { width: 100%; max-width: 700px; margin-top: 10px; }
+  .bar-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .bar-label { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--muted); width: 180px; text-align: right; flex-shrink: 0; }
+  .bar-track { flex: 1; height: 32px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; display: flex; align-items: center; padding-left: 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #000; font-weight: 700; transition: width 1.5s ease; width: 0%; }
+
+  .quiz-box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 28px; max-width: 750px; width: 100%; text-align: center; margin-top: 10px; }
+  .quiz-question { font-size: 20px; color: var(--text); margin-bottom: 20px; line-height: 1.7; }
+  .quiz-answer { display: none; background: rgba(0,255,136,0.08); border: 1px solid var(--green); border-radius: 8px; padding: 18px; color: var(--green); font-size: 17px; line-height: 1.75; margin-top: 16px; text-align: left; }
+  .reveal-btn { background: transparent; border: 1px solid var(--cyan); color: var(--cyan); padding: 12px 32px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 14px; cursor: pointer; transition: all 0.2s; letter-spacing: 1px; }
+  .reveal-btn:hover { background: rgba(0,245,255,0.1); }
+
+  .model-timeline { width: 100%; max-width: 900px; display: flex; flex-direction: column; gap: 10px; }
+  .model-item { display: flex; gap: 16px; align-items: flex-start; padding: 14px 18px; background: var(--card); border-radius: 10px; border-left: 3px solid var(--muted); }
+  .model-item.rejected { border-left-color: var(--red); }
+  .model-item.winner { border-left-color: var(--green); }
+  .model-num { font-family: 'Orbitron', sans-serif; font-size: 22px; font-weight: 900; color: var(--muted); width: 40px; flex-shrink: 0; }
+  .model-item.rejected .model-num { color: var(--red); }
+  .model-item.winner .model-num { color: var(--green); }
+  .model-info { flex: 1; }
+  .model-name { font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--cyan); margin-bottom: 5px; }
+  .model-reason { font-size: 14px; color: var(--text); line-height: 1.65; }
+  .model-verdict { font-size: 13px; margin-top: 5px; }
+
+  #nav { position: fixed; bottom: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: center; gap: 16px; padding: 14px 20px; background: rgba(5,5,16,0.95); border-top: 1px solid var(--border); z-index: 100; }
+  .nav-btn { background: transparent; border: 1px solid var(--border); color: var(--text); padding: 10px 28px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 14px; cursor: pointer; transition: all 0.2s; letter-spacing: 1px; }
+  .nav-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+  .nav-btn:disabled { opacity: 0.3; cursor: default; }
+  .nav-btn.primary { border-color: var(--cyan); color: var(--cyan); }
+
+  #narration-status { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--muted); min-width: 160px; text-align: center; }
+
+  #auto-timer { width: 200px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+  #auto-fill { height: 100%; background: var(--cyan); width: 0%; transition: none; }
+
+  .title-subtitle { font-size: 18px; color: var(--muted); text-align: center; margin-bottom: 30px; letter-spacing: 1px; }
+  .title-tags { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
+  .title-tag { padding: 7px 18px; border-radius: 20px; font-family: 'JetBrains Mono', monospace; font-size: 13px; border: 1px solid; }
+  .title-tag.c { border-color: var(--cyan); color: var(--cyan); }
+  .title-tag.p { border-color: var(--purple); color: var(--purple); }
+  .title-tag.g { border-color: var(--green); color: var(--green); }
+  .title-tag.a { border-color: var(--amber); color: var(--amber); }
+
+  .highlight { background: rgba(0,245,255,0.06); border: 1px solid rgba(0,245,255,0.2); border-radius: 10px; padding: 18px 22px; max-width: 820px; width: 100%; margin-top: 12px; }
+  .highlight.green { background: rgba(0,255,136,0.06); border-color: rgba(0,255,136,0.2); }
+  .highlight.amber { background: rgba(255,183,0,0.06); border-color: rgba(255,183,0,0.2); }
+  .highlight.red { background: rgba(255,68,102,0.06); border-color: rgba(255,68,102,0.2); }
+
+  .roc-visual { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; max-width: 800px; margin-top: 14px; }
+  .roc-item { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px 22px; text-align: center; min-width: 145px; }
+  .roc-val { font-family: 'Orbitron', sans-serif; font-size: 30px; font-weight: 900; margin-bottom: 6px; }
+  .roc-class { font-size: 14px; color: var(--muted); }
+
+  .scroll-content { max-height: calc(100vh - 200px); overflow-y: auto; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; padding-right: 4px; }
+  .scroll-content::-webkit-scrollbar { width: 4px; }
+  .scroll-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* Image slide */
+  .img-container { width: 100%; max-width: 820px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); margin-top: 12px; }
+  .img-container img { width: 100%; display: block; }
+  .img-caption { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--muted); text-align: center; margin-top: 10px; }
+
+  /* Notebook link */
+  .notebook-link { display: inline-flex; align-items: center; gap: 10px; padding: 12px 28px; border: 1px solid var(--cyan); border-radius: 8px; color: var(--cyan); text-decoration: none; font-family: 'JetBrains Mono', monospace; font-size: 14px; transition: all 0.2s; margin-top: 16px; }
+  .notebook-link:hover { background: rgba(0,245,255,0.1); }
+
+  /* Results visual boxes */
+  .result-big { text-align: center; padding: 20px; }
+  .result-num { font-family: 'Orbitron', sans-serif; font-size: 52px; font-weight: 900; }
+  .result-desc { font-size: 16px; color: var(--muted); margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<div id="progress-bar"></div>
+<div id="slide-counter">1 / 16</div>
+
+<div id="slide-area">
+
+  <!-- SLIDE 1: Title -->
+  <div class="slide active" id="s1">
+    <div class="slide-tag">Clinical AI · Deep Learning · NHS</div>
+    <h1>LSTM for ECG<br>Arrhythmia Classification</h1>
+    <div class="title-subtitle">MIT-BIH Dataset · 5-Class Heartbeat Detection</div>
+    <svg class="ecg-line" viewBox="0 0 700 80">
+      <path class="ecg-path" d="M0,40 L80,40 L90,40 L100,10 L110,70 L120,40 L160,40 L170,40 L180,5 L190,75 L200,40 L240,40 L250,40 L260,10 L270,70 L280,40 L320,40 L330,40 L340,5 L350,75 L360,40 L400,40 L410,40 L420,10 L430,70 L440,40 L480,40 L490,40 L500,5 L510,75 L520,40 L560,40 L570,40 L580,10 L590,70 L600,40 L700,40"/>
+    </svg>
+    <div class="title-tags">
+      <span class="title-tag c">LSTM</span>
+      <span class="title-tag p">Deep Learning</span>
+      <span class="title-tag g">95.6% Accuracy</span>
+      <span class="title-tag a">ECG Signal</span>
+      <span class="title-tag c">Class Imbalance</span>
+    </div>
+    <a class="notebook-link" href="https://www.kaggle.com/code/jyothiprabhu/lstm-on-ecg-deataset" target="_blank">📓 View Full Kaggle Notebook</a>
+  </div>
+
+  <!-- SLIDE 2: What is ECG -->
+  <div class="slide" id="s2">
+    <div class="slide-tag">Background</div>
+    <h2>What is an ECG?</h2>
+    <div class="card-grid cols-3" style="max-width:960px">
+      <div class="card green">
+        <div class="card-icon">💓</div>
+        <div class="card-title">ECG Definition</div>
+        <div class="card-body">Electrocardiogram — records the electrical activity of the heart over time as a waveform signal</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">📈</div>
+        <div class="card-title">PQRST Waves</div>
+        <div class="card-body">P wave → atria contract<br>QRS complex → ventricles contract (biggest peak!)<br>T wave → recovery phase</div>
+      </div>
+      <div class="card purple">
+        <div class="card-icon">🏥</div>
+        <div class="card-title">Clinical Use</div>
+        <div class="card-body">Diagnose arrhythmias, heart attacks, and cardiac conditions in hospitals and wearables like Apple Watch</div>
+      </div>
+    </div>
+    <div class="highlight" style="margin-top:18px">
+      <p class="body" style="font-size:17px">Our dataset — <strong style="color:var(--cyan)">MIT-BIH</strong> — is single-lead ECG. Each heartbeat = <strong style="color:var(--cyan)">187 time-point values</strong> already normalised 0 to 1. Single-lead means 1 channel (not 12-lead hospital ECG).</p>
+    </div>
+  </div>
+
+  <!-- SLIDE 3: LSTM -->
+  <div class="slide" id="s3">
+    <div class="slide-tag">Core Concept</div>
+    <h2>Why LSTM for ECG?</h2>
+    <div class="card-grid cols-2" style="max-width:900px">
+      <div class="card red">
+        <div class="card-title">❌ Simple RNN Problem</div>
+        <div class="card-body" style="font-size:16px">Forgets long-range patterns — can't connect what happened at time step 1 to time step 187. Called the <strong style="color:var(--red)">vanishing gradient problem</strong>.</div>
+      </div>
+      <div class="card green">
+        <div class="card-title">✅ LSTM Solution</div>
+        <div class="card-body" style="font-size:16px">Has a <strong style="color:var(--green)">cell state</strong> (long-term memory) and <strong style="color:var(--green)">hidden state</strong> (short-term memory). Three gates control what to remember and forget.</div>
+      </div>
+    </div>
+    <div class="card-grid cols-3" style="max-width:900px;margin-top:12px">
+      <div class="card">
+        <div class="card-title">🗑️ Forget Gate</div>
+        <div class="card-body">Decides what old information to throw away. Sigmoid output 0 = forget, 1 = keep</div>
+      </div>
+      <div class="card">
+        <div class="card-title">📥 Input Gate</div>
+        <div class="card-body">Decides what new information to store. Sigmoid selects, tanh creates candidate values</div>
+      </div>
+      <div class="card">
+        <div class="card-title">📤 Output Gate</div>
+        <div class="card-body">Decides what to output as hidden state. tanh of cell state × sigmoid filter</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 4: Dataset -->
+  <div class="slide" id="s4">
+    <div class="slide-tag">Dataset</div>
+    <h2>MIT-BIH ECG Dataset</h2>
+    <div class="card-grid cols-4" style="max-width:960px">
+      <div class="card"><div class="card-val">87,554</div><div class="card-label">Training samples</div></div>
+      <div class="card"><div class="card-val">21,892</div><div class="card-label">Test samples</div></div>
+      <div class="card"><div class="card-val">187</div><div class="card-label">Time points per beat</div></div>
+      <div class="card"><div class="card-val">5</div><div class="card-label">Arrhythmia classes</div></div>
+    </div>
+    <table style="margin-top:20px">
+      <tr><th>Class</th><th>Name</th><th>Samples</th><th>% of Data</th></tr>
+      <tr><td><span class="badge badge-green">0</span></td><td>Normal</td><td>72,471</td><td style="color:var(--amber)">82.8% ⚠️ Dominant!</td></tr>
+      <tr><td><span class="badge badge-cyan">1</span></td><td>Supraventricular</td><td>2,223</td><td>2.5%</td></tr>
+      <tr><td><span class="badge badge-cyan">2</span></td><td>Ventricular</td><td>5,788</td><td>6.6%</td></tr>
+      <tr><td><span class="badge badge-red">3</span></td><td>Fusion</td><td>641</td><td style="color:var(--red)">0.7% ← Rarest!</td></tr>
+      <tr><td><span class="badge badge-cyan">4</span></td><td>Unknown</td><td>6,431</td><td>7.3%</td></tr>
+    </table>
+  </div>
+
+  <!-- SLIDE 5: Class Imbalance -->
+  <div class="slide" id="s5">
+    <div class="slide-tag">Problem</div>
+    <h2>Class Imbalance Challenge</h2>
+    <div class="bar-chart">
+      <div class="bar-row"><div class="bar-label">Normal</div><div class="bar-track"><div class="bar-fill" id="b0" style="background:var(--green)">72,471</div></div></div>
+      <div class="bar-row"><div class="bar-label">Unknown</div><div class="bar-track"><div class="bar-fill" id="b4" style="background:var(--cyan)">6,431</div></div></div>
+      <div class="bar-row"><div class="bar-label">Ventricular</div><div class="bar-track"><div class="bar-fill" id="b2" style="background:var(--purple)">5,788</div></div></div>
+      <div class="bar-row"><div class="bar-label">Supraventricular</div><div class="bar-track"><div class="bar-fill" id="b1" style="background:var(--amber)">2,223</div></div></div>
+      <div class="bar-row"><div class="bar-label">Fusion ← Rarest!</div><div class="bar-track"><div class="bar-fill" id="b3" style="background:var(--red)">641</div></div></div>
+    </div>
+    <div class="highlight amber" style="margin-top:14px;max-width:720px">
+      <p class="body" style="text-align:center;font-size:17px">⚠️ Without fixing this — model predicts <strong style="color:var(--amber)">everything as Normal</strong> → 82% accuracy but misses all arrhythmias!</p>
+    </div>
+    <div class="highlight green" style="margin-top:10px;max-width:720px">
+      <p class="body" style="text-align:center;font-size:17px">✅ Solution: <strong style="color:var(--green)">Manual Class Weights</strong> — no synthetic data (unsafe for medical ECG). Rare classes get higher penalty weight.</p>
+    </div>
+  </div>
+
+  <!-- SLIDE 6: Preprocessing -->
+  <div class="slide" id="s6">
+    <div class="slide-tag">Data Preparation</div>
+    <h2>Preprocessing Pipeline</h2>
+    <div class="card-grid cols-2" style="max-width:900px">
+      <div class="card">
+        <div class="card-title">Step 1 · Reshape to 3D</div>
+        <div class="card-body" style="font-size:15px">LSTM needs 3D input:<br><br>
+          <code style="color:var(--cyan);font-family:'JetBrains Mono',monospace;font-size:14px">(87554, 187) → (87554, 187, 1)</code><br><br>
+          samples × time steps × channels. Single-lead ECG = 1 channel only</div>
+      </div>
+      <div class="card green">
+        <div class="card-title">Step 2 · One Hot Encoding</div>
+        <div class="card-body" style="font-size:15px">Labels converted to vectors:<br><br>
+          <code style="color:var(--green);font-family:'JetBrains Mono',monospace;font-size:14px">0 → [1,0,0,0,0]<br>3 → [0,0,0,1,0]</code><br><br>
+          Prevents model thinking class 4 is greater than class 0</div>
+      </div>
+      <div class="card amber">
+        <div class="card-title">Step 3 · Class Weights (Final)</div>
+        <div class="card-body" style="font-size:15px">
+          <code style="color:var(--amber);font-family:'JetBrains Mono',monospace;font-size:13px">Normal: 1x · Suprav: 5x<br>Ventric: 7x · Fusion: 15x<br>Unknown: 3x</code><br><br>
+          Like giving extra attention to weaker students!</div>
+      </div>
+      <div class="card purple">
+        <div class="card-title">Already Normalised ✅</div>
+        <div class="card-body" style="font-size:15px">MIT-BIH data already 0–1 range. No MinMaxScaler needed. Zeros at end = padding to reach 187 time points for shorter beats.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 7: Architecture -->
+  <div class="slide" id="s7">
+    <div class="slide-tag">Model Design</div>
+    <h2>LSTM Architecture</h2>
+    <div style="display:flex;gap:40px;align-items:flex-start;justify-content:center;width:100%;max-width:940px">
+      <div class="arch-flow">
+        <div class="arch-box input">Input · (samples, 187, 1)</div>
+        <div class="arch-arrow"></div>
+        <div class="arch-box lstm">LSTM Layer 1 · 128 units · return_sequences=True</div>
+        <div class="arch-arrow"></div>
+        <div class="arch-box dropout">Dropout · 0.3 → 30% neurons randomly off</div>
+        <div class="arch-arrow"></div>
+        <div class="arch-box lstm">LSTM Layer 2 · 64 units · return_sequences=False</div>
+        <div class="arch-arrow"></div>
+        <div class="arch-box dropout">Dropout · 0.3</div>
+        <div class="arch-arrow"></div>
+        <div class="arch-box output">Dense · 5 units · Softmax output</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;max-width:300px">
+        <div class="card" style="padding:16px">
+          <div class="card-title">return_sequences?</div>
+          <div class="card-body" style="font-size:14px"><strong style="color:var(--cyan)">True</strong> → all 187 outputs to next LSTM<br><strong style="color:var(--amber)">False</strong> → only final output to Dense</div>
+        </div>
+        <div class="card amber" style="padding:16px">
+          <div class="card-title">Optimizer</div>
+          <div class="card-body" style="font-size:14px"><strong style="color:var(--amber)">AdamW</strong> = Adam + Weight Decay. Prevents overfitting better than standard Adam. LR = 0.001</div>
+        </div>
+        <div class="card green" style="padding:16px">
+          <div class="card-title">Total Parameters</div>
+          <div class="card-body" style="font-size:16px;color:var(--green);font-family:'JetBrains Mono',monospace">116,293</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 8: Model Journey -->
+  <div class="slide" id="s8">
+    <div class="slide-tag">Iteration Journey</div>
+    <h2>Why We Tried 7 Models</h2>
+    <div class="scroll-content">
+      <div class="model-timeline">
+        <div class="model-item rejected">
+          <div class="model-num">M1</div>
+          <div class="model-info">
+            <div class="model-name">Adam · Auto class weights 27x Fusion · 10 epochs</div>
+            <div class="model-reason">Val loss jumping wildly — overshooting! 27x penalty too aggressive. Fusion F1 = 0.00 — never predicted at all.</div>
+            <div class="model-verdict"><span class="badge badge-red">Rejected · Overshooting problem</span></div>
+          </div>
+        </div>
+        <div class="model-item rejected">
+          <div class="model-num">M2</div>
+          <div class="model-info">
+            <div class="model-name">Adam · Auto weights · Early Stopping patience=3</div>
+            <div class="model-reason">Early stopping triggered too soon at epoch 6. Same 27x weight problem — rare classes still missed completely.</div>
+            <div class="model-verdict"><span class="badge badge-red">Rejected · Stopped too early</span></div>
+          </div>
+        </div>
+        <div class="model-item rejected">
+          <div class="model-num">M3</div>
+          <div class="model-info">
+            <div class="model-name">Adam · Manual weights {Normal:1, Fusion:5}</div>
+            <div class="model-reason">83% accuracy but Fusion F1 still 0.00. Weights not aggressive enough for rarest class with only 641 samples.</div>
+            <div class="model-verdict"><span class="badge badge-amber">Partial · Fusion still missed</span></div>
+          </div>
+        </div>
+        <div class="model-item rejected">
+          <div class="model-num">M4</div>
+          <div class="model-info">
+            <div class="model-name">AdamW · Aggressive weights Fusion:20x · LR=0.001</div>
+            <div class="model-reason">Crashed at epoch 3. Too high class weights + AdamW caused loss to spike uncontrollably.</div>
+            <div class="model-verdict"><span class="badge badge-red">Rejected · Crashed immediately</span></div>
+          </div>
+        </div>
+        <div class="model-item winner">
+          <div class="model-num">M5</div>
+          <div class="model-info">
+            <div class="model-name">AdamW · Balanced weights {Normal:1, Suprav:5, Ventric:7, Fusion:15, Unknown:3} · patience=5</div>
+            <div class="model-reason">Sweet spot found! 95.6% accuracy. Fusion F1 improved from 0.00 to 0.56. All rare classes now predicted correctly.</div>
+            <div class="model-verdict"><span class="badge badge-green">✅ WINNER — Final Model</span></div>
+          </div>
+        </div>
+        <div class="model-item rejected">
+          <div class="model-num">M6/7</div>
+          <div class="model-info">
+            <div class="model-name">AdamW · Lower LR=0.0001 · 30 epochs · patience=7</div>
+            <div class="model-reason">More stable training curve but accuracy dropped to 92-93%. Lower learning rate = underfitting. Model 5 remains superior.</div>
+            <div class="model-verdict"><span class="badge badge-amber">Rejected · Lower accuracy</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 9: Confusion Matrix -->
+  <div class="slide" id="s9">
+    <div class="slide-tag">Results · Confusion Matrix</div>
+    <h2>Confusion Matrix — Model 5</h2>
+    <table style="max-width:860px">
+      <tr><th>Actual \ Predicted</th><th style="color:var(--green)">Normal</th><th>Suprav</th><th>Ventric</th><th>Fusion</th><th>Unknown</th></tr>
+      <tr><td><strong style="color:var(--green)">Normal</strong></td><td style="color:var(--green)"><strong>17,585</strong></td><td>218</td><td>141</td><td>118</td><td>56</td></tr>
+      <tr><td><strong>Supraventricular</strong></td><td>166</td><td style="color:var(--cyan)"><strong>371</strong></td><td>17</td><td>2</td><td>0</td></tr>
+      <tr><td><strong>Ventricular</strong></td><td>62</td><td>1</td><td style="color:var(--cyan)"><strong>1,345</strong></td><td>32</td><td>8</td></tr>
+      <tr><td><strong style="color:var(--amber)">Fusion (rarest!)</strong></td><td>25</td><td>0</td><td>14</td><td style="color:var(--amber)"><strong>123</strong></td><td>0</td></tr>
+      <tr><td><strong>Unknown</strong></td><td>67</td><td>0</td><td>21</td><td>2</td><td style="color:var(--cyan)"><strong>1,518</strong></td></tr>
+    </table>
+    <div class="highlight green" style="margin-top:14px;max-width:860px">
+      <p class="body" style="font-size:16px;text-align:center">🎯 Diagonal = correct predictions. Fusion improved from <strong style="color:var(--red)">0 correct</strong> (Model 3) to <strong style="color:var(--green)">123 correct</strong> (Model 5)! Ventricular: 20 → 1,345!</p>
+    </div>
+  </div>
+
+  <!-- SLIDE 10: F1 Scores -->
+  <div class="slide" id="s10">
+    <div class="slide-tag">Results · F1 Score</div>
+    <h2>F1 Score — Before vs After</h2>
+    <table style="max-width:820px">
+      <tr><th>Class</th><th>Model 3 F1</th><th>Model 5 F1</th><th>Improvement</th></tr>
+      <tr><td>Normal</td><td>0.91</td><td style="color:var(--green)"><strong>0.98</strong></td><td><span class="badge badge-green">+0.07</span></td></tr>
+      <tr><td>Supraventricular</td><td style="color:var(--red)">0.01</td><td style="color:var(--green)"><strong>0.65</strong></td><td><span class="badge badge-green">+0.64 🚀</span></td></tr>
+      <tr><td>Ventricular</td><td style="color:var(--red)">0.03</td><td style="color:var(--green)"><strong>0.90</strong></td><td><span class="badge badge-green">+0.87 🚀</span></td></tr>
+      <tr><td>Fusion (rarest!)</td><td style="color:var(--red)">0.00</td><td style="color:var(--amber)"><strong>0.56</strong></td><td><span class="badge badge-green">Zero → 0.56 🌟</span></td></tr>
+      <tr><td>Unknown</td><td>0.53</td><td style="color:var(--green)"><strong>0.95</strong></td><td><span class="badge badge-green">+0.42 🚀</span></td></tr>
+    </table>
+    <div class="highlight green" style="margin-top:16px;max-width:820px">
+      <p class="body" style="text-align:center;font-size:18px">🎯 Overall Accuracy: <strong style="color:var(--green);font-size:22px">95.6%</strong> &nbsp;|&nbsp; Macro F1: <strong style="color:var(--green)">0.81</strong> &nbsp;|&nbsp; Weighted F1: <strong style="color:var(--green)">0.96</strong></p>
+    </div>
+  </div>
+
+  <!-- SLIDE 11: ROC AUC -->
+  <div class="slide" id="s11">
+    <div class="slide-tag">Results · ROC AUC</div>
+    <h2>ROC AUC Scores — Model 5</h2>
+    <div class="roc-visual">
+      <div class="roc-item"><div class="roc-val" style="color:var(--green)">0.98</div><div class="roc-class">Normal</div></div>
+      <div class="roc-item"><div class="roc-val" style="color:var(--amber)">0.91</div><div class="roc-class">Supraventricular</div></div>
+      <div class="roc-item"><div class="roc-val" style="color:var(--green)">1.00 🌟</div><div class="roc-class">Ventricular</div></div>
+      <div class="roc-item"><div class="roc-val" style="color:var(--green)">0.99</div><div class="roc-class">Fusion</div></div>
+      <div class="roc-item"><div class="roc-val" style="color:var(--green)">1.00 🌟</div><div class="roc-class">Unknown</div></div>
+    </div>
+    <div class="card-grid cols-2" style="margin-top:18px;max-width:780px">
+      <div class="card">
+        <div class="card-title">What is AUC = 1.00?</div>
+        <div class="card-body" style="font-size:15px">Perfect classification! Model correctly separates this class 100% of the time. Ventricular arrhythmia — most dangerous type — detected perfectly.</div>
+      </div>
+      <div class="card green">
+        <div class="card-title">Clinical Significance 🏥</div>
+        <div class="card-body" style="font-size:15px">Ventricular arrhythmias can cause sudden cardiac death. AUC = 1.00 means zero missed cases. This is the NHS standard we need!</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 12: Quiz -->
+  <div class="slide" id="s12">
+    <div class="slide-tag">Quick Check</div>
+    <h2>Test Your Understanding</h2>
+    <div class="quiz-box">
+      <div class="quiz-question">Why did we use <strong style="color:var(--cyan)">manual class weights</strong> instead of SMOTE for handling class imbalance in ECG data?</div>
+      <button class="reveal-btn" onclick="revealAnswer('q1')">Reveal Answer</button>
+      <div class="quiz-answer" id="q1">SMOTE creates <strong>synthetic heartbeats</strong> that don't represent real patients. In medical AI, fake ECG data is dangerous — a model trained on synthetic beats may fail on real patients. Manual class weights only change how the model <strong>learns from real data</strong>, keeping medical integrity intact.</div>
+    </div>
+    <div class="quiz-box" style="margin-top:14px">
+      <div class="quiz-question">What does <strong style="color:var(--cyan)">overshooting</strong> look like in training graphs and how do we fix it?</div>
+      <button class="reveal-btn" onclick="revealAnswer('q2')">Reveal Answer</button>
+      <div class="quiz-answer" id="q2">Overshooting shows as <strong>val loss jumping up and down</strong> between epochs — like a bouncing ball! The learning rate is too high so the model takes steps that are too large and misses the minimum. Fix: <strong>reduce the learning rate</strong> (we went from 0.001 to 0.0005).</div>
+    </div>
+  </div>
+
+  <!-- SLIDE 13: Challenges -->
+  <div class="slide" id="s13">
+    <div class="slide-tag">Lessons Learned</div>
+    <h2>Key Challenges Faced</h2>
+    <div class="card-grid cols-2" style="max-width:940px">
+      <div class="card red">
+        <div class="card-title">⚡ Overshooting</div>
+        <div class="card-body" style="font-size:15px">Learning rate too high → val loss bouncing up and down every epoch. We literally saw this in the loss plot! Fix: reduce LR from 0.001 to 0.0005.</div>
+      </div>
+      <div class="card amber">
+        <div class="card-title">⚖️ Class Weight Balance</div>
+        <div class="card-body" style="font-size:15px">27x weight → model panics and loses stability. 5x weight → rare classes still missed. 15x weight → the sweet spot! Took 7 iterations to find.</div>
+      </div>
+      <div class="card">
+        <div class="card-title">🛑 Early Stopping Timing</div>
+        <div class="card-body" style="font-size:15px">Patience=3 stopped training before rare classes could be learned. Increasing to patience=5 gave model enough time to improve on minority classes.</div>
+      </div>
+      <div class="card purple">
+        <div class="card-title">📊 Accuracy is Misleading!</div>
+        <div class="card-body" style="font-size:15px">83% accuracy model had Fusion F1 = 0.00! High accuracy hides failure on rare classes. Always check per-class F1 scores for imbalanced medical data.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 14: Future Work -->
+  <div class="slide" id="s14">
+    <div class="slide-tag">Future Improvements</div>
+    <h2>What Could Make This Better?</h2>
+    <div class="card-grid cols-2" style="max-width:940px">
+      <div class="card green">
+        <div class="card-icon">🔄</div>
+        <div class="card-title">Bidirectional LSTM</div>
+        <div class="card-body" style="font-size:15px">Read ECG signal forwards AND backwards. Captures context from both directions — P wave before and T wave after the QRS complex gives richer understanding.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">📉</div>
+        <div class="card-title">Learning Rate Scheduler</div>
+        <div class="card-body" style="font-size:15px">Automatically reduce learning rate when val_loss plateaus — ReduceLROnPlateau callback. Would have fixed the unstable oscillating training we saw.</div>
+      </div>
+      <div class="card purple">
+        <div class="card-icon">🎯</div>
+        <div class="card-title">Focal Loss</div>
+        <div class="card-body" style="font-size:15px">Replaces categorical crossentropy. Automatically focuses on hard-to-classify rare samples. Better than manual class weights for extreme imbalance like Fusion (0.7%).</div>
+      </div>
+      <div class="card amber">
+        <div class="card-icon">🔗</div>
+        <div class="card-title">CNN + LSTM Hybrid</div>
+        <div class="card-body" style="font-size:15px">CNN extracts local waveform features (P, QRS, T shapes), LSTM captures temporal patterns across the full sequence. State-of-the-art approach for ECG.</div>
+      </div>
+    </div>
+    <div class="highlight" style="margin-top:14px;max-width:940px">
+      <p class="body" style="font-size:16px;text-align:center">🏥 Ultimate goal: <strong style="color:var(--cyan)">12-lead ECG</strong> (input shape 187×12) for full NHS clinical deployment — much richer cardiac data than single-lead wearables.</p>
+    </div>
+  </div>
+
+  <!-- SLIDE 15: Notebook -->
+  <div class="slide" id="s15">
+    <div class="slide-tag">Full Code</div>
+    <h2>View the Complete Notebook</h2>
+    <div class="card-grid cols-3" style="max-width:820px">
+      <div class="card green" style="text-align:center">
+        <div class="card-val" style="font-size:40px">95.6%</div>
+        <div class="card-label">Final Accuracy</div>
+      </div>
+      <div class="card" style="text-align:center">
+        <div class="card-val" style="font-size:40px">1.00</div>
+        <div class="card-label">Ventricular AUC</div>
+      </div>
+      <div class="card purple" style="text-align:center">
+        <div class="card-val" style="font-size:40px">7</div>
+        <div class="card-label">Models Iterated</div>
+      </div>
+    </div>
+    <div class="highlight" style="margin-top:20px;text-align:center;max-width:700px">
+      <p style="font-size:16px;line-height:1.9;color:var(--text)">Full pipeline including data loading, EDA, preprocessing, all 7 model iterations, confusion matrix, F1 scores, and ROC AUC curves.</p>
+    </div>
+    <a class="notebook-link" href="https://www.kaggle.com/code/jyothiprabhu/lstm-on-ecg-deataset" target="_blank">
+      📓 kaggle.com/code/jyothiprabhu/lstm-on-ecg-deataset
+    </a>
+  </div>
+
+  <!-- SLIDE 16: Credits -->
+  <div class="slide" id="s16">
+    <div class="slide-tag">Thank You</div>
+    <h1 style="font-size:36px">LSTM ECG Classification<br>Complete! 🎉</h1>
+    <div class="card-grid cols-3" style="max-width:820px;margin-top:18px">
+      <div class="card green" style="text-align:center"><div class="card-val" style="font-size:38px">95.6%</div><div class="card-label">Accuracy</div></div>
+      <div class="card" style="text-align:center"><div class="card-val" style="font-size:38px">1.00</div><div class="card-label">Ventricular AUC</div></div>
+      <div class="card purple" style="text-align:center"><div class="card-val" style="font-size:38px">0→0.56</div><div class="card-label">Fusion F1 Improvement</div></div>
+    </div>
+    <div class="highlight" style="margin-top:22px;text-align:center;max-width:700px">
+      <p style="font-size:16px;line-height:2;color:var(--text)">
+        Special thanks to <strong style="color:var(--cyan)">Ajay Sir</strong> for the foundational teaching and guidance 🙏<br>
+        And to <strong style="color:var(--purple)">Smarty & Claudi</strong> — AI assistants throughout this journey 🤖<br><br>
+        <span style="color:var(--muted);font-size:13px">Dataset: MIT-BIH Arrhythmia Database · Kaggle · shayanfazeli/heartbeat</span>
+      </p>
+    </div>
+    <div class="title-tags" style="margin-top:18px">
+      <span class="title-tag g">Like · Share · Subscribe</span>
+      <span class="title-tag c">Sparky Teaches ML</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- Navigation -->
+<div id="nav">
+  <button class="nav-btn" id="prev-btn" onclick="prevSlide()" disabled>◀ PREV</button>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+    <div id="narration-status">🔊 Click anywhere to start</div>
+    <div id="auto-timer"><div id="auto-fill"></div></div>
+  </div>
+  <button class="nav-btn primary" id="next-btn" onclick="nextSlide()">NEXT ▶</button>
+</div>
+
+<script>
+  const TOTAL = 16;
+  let current = 1;
+  let synth = window.speechSynthesis;
+  let keepAliveTimer = null;
+  let autoTimer = null;
+  let started = false;
+
+  const narrations = {
+    1: "Welcome to Sparky Teaches ML! In this video, we build an LSTM model from scratch to classify ECG heartbeats into 5 categories using the MIT-BIH dataset. We will walk through the complete pipeline, share all the challenges we faced, and explain why we chose our final model. The full Kaggle notebook link is on this slide — check it out!",
+    2: "An Electrocardiogram records the electrical activity of the heart as a waveform. Each heartbeat has three key waves — the P wave when the atria contract, the QRS complex which is the large sharp peak when ventricles contract, and the T wave during recovery. Our MIT-BIH dataset is single-lead ECG — like Apple Watch — where each heartbeat is 187 time-point values normalised between 0 and 1.",
+    3: "Why is LSTM perfect for ECG? Because ECG is a time series — each time point depends on the previous one. Simple RNNs suffer from the vanishing gradient problem and forget long-range patterns. LSTM solves this with three gates: the Forget Gate decides what to discard from memory, the Input Gate decides what new information to store, and the Output Gate decides what to send as the final output. LSTM has both long-term memory called cell state, and short-term memory called hidden state.",
+    4: "Our dataset has 87,554 training samples and 21,892 test samples. Each sample has 187 time points and belongs to one of 5 classes. The critical issue is visible immediately — Normal heartbeats make up 82.8 percent with 72,471 samples, while Fusion beats have only 641 samples. This extreme imbalance is the core challenge of this project.",
+    5: "The class imbalance bar chart makes the problem crystal clear. Normal dominates completely. Without addressing this, a model could predict everything as Normal and still achieve 82 percent accuracy — but it would miss every single arrhythmia. That is dangerous in medical AI. We chose Manual Class Weights as our solution — no synthetic data, because creating fake ECG beats for medical use is unsafe and could harm real patients.",
+    6: "Our preprocessing has three steps. First, reshape from 2D to 3D — 87,554 by 187 becomes 87,554 by 187 by 1 — because LSTM needs samples, time steps, and channels format. Second, One Hot Encoding converts class labels from numbers to vectors, preventing the model from thinking class 4 is greater than class 0. Third, we apply manual class weights with Fusion getting 15 times the normal weight — like a teacher giving extra attention to the weakest student.",
+    7: "Our architecture has 5 layers. Input accepts 3D ECG data. LSTM Layer 1 has 128 units with return sequences equals True — it passes all 187 time-step outputs to the next LSTM. Dropout at 30 percent prevents overfitting by randomly switching off neurons during training. LSTM Layer 2 has 64 units with return sequences equals False — it passes only the final summary to Dense. The Dense output layer has 5 units with Softmax giving class probabilities. We used AdamW optimizer — Adam plus weight decay — which prevents overfitting better than standard Adam. Total parameters: 116,293.",
+    8: "We tried 7 model iterations. Model 1 used automatic class weights at 27 times for Fusion — too aggressive, causing wild oscillations and Fusion was never predicted. Model 2 added Early Stopping but the same issue remained. Model 3 used gentler manual weights but Fusion F1 was still zero. Model 4 used AdamW with 20 times Fusion weight — crashed at epoch 3. Model 5 — our winner — used balanced weights with Fusion at 15 times and patience of 5. Perfect balance! Models 6 and 7 were more stable but less accurate. Model 5 wins.",
+    9: "The confusion matrix tells the full story. The diagonal shows correct predictions. Normal: 17,585 correct. Ventricular: 1,345 correct — improved from just 20 in Model 3! Most importantly, Fusion improved from 0 correct predictions to 123 correct. This is the key breakthrough — our class weight tuning finally made the model pay attention to the rarest arrhythmia.",
+    10: "The F1 score comparison shows dramatic improvement. Supraventricular jumped from 0.01 to 0.65. Ventricular went from 0.03 to 0.90. Fusion went from literally zero to 0.56 — from completely missed to over half correctly identified. Unknown improved from 0.53 to 0.95. Overall accuracy: 95.6 percent with weighted F1 of 0.96.",
+    11: "The ROC AUC scores are excellent. Ventricular and Unknown achieved perfect 1.00. Fusion scored 0.99 and Normal 0.98. Supraventricular was 0.91. Ventricular AUC of 1.00 is the most clinically significant result — ventricular arrhythmias can cause sudden cardiac death, and our model detects them perfectly. This is the NHS clinical AI standard.",
+    12: "Two quick questions to test your understanding. First — why did we use class weights instead of SMOTE? And second — what does overshooting look like and how do we fix it? Click reveal to check your answers!",
+    13: "Four key challenges. First — overshooting: the learning rate was too high causing val loss to bounce up and down like a ball — we literally saw this in the loss graph. Second — class weight balance: 27 times was too aggressive, 5 times too gentle, 15 times was perfect. Third — Early Stopping patience needed to increase from 3 to 5. Fourth — the most important lesson: accuracy alone is completely misleading for imbalanced medical data! Always check per-class F1 scores.",
+    14: "Future improvements include Bidirectional LSTM which reads ECG forwards and backwards for richer context, Learning Rate Scheduler to automatically reduce LR when training stalls, Focal Loss which automatically focuses on hard samples without manual weight tuning, and CNN plus LSTM hybrid which is the current state of the art. The ultimate goal is 12-lead ECG for full NHS clinical deployment.",
+    15: "The complete Kaggle notebook includes everything — data loading, EDA with class distribution plots, all 7 model iterations with their results, confusion matrices, F1 scores, ROC AUC curves, and the final model saved in Keras format. Link is on screen — check it out and leave a comment!",
+    16: "That's a wrap on our LSTM ECG Arrhythmia Classification project! We achieved 95.6 percent accuracy, Ventricular AUC of 1.00, and improved Fusion detection from completely missed to 56 percent F1 through 7 careful model iterations. Massive thank you to Ajay Sir for the foundation, and to Smarty and Claudi for the AI assistance! If this helped you, please like, share, and subscribe to Sparky Teaches ML. See you in the next video!"
+  };
+
+  function updateSlide() {
+    document.querySelectorAll('.slide').forEach(s => s.classList.remove('active'));
+    document.getElementById('s' + current).classList.add('active');
+    document.getElementById('slide-counter').textContent = current + ' / ' + TOTAL;
+    document.getElementById('progress-bar').style.width = (current / TOTAL * 100) + '%';
+    document.getElementById('prev-btn').disabled = current === 1;
+    document.getElementById('next-btn').disabled = current === TOTAL;
+
+    if (current === 5) {
+      setTimeout(() => {
+        document.getElementById('b0').style.width = '100%';
+        document.getElementById('b4').style.width = '8.9%';
+        document.getElementById('b2').style.width = '8%';
+        document.getElementById('b1').style.width = '3.1%';
+        document.getElementById('b3').style.width = '0.9%';
+      }, 400);
+    }
+
+    if (started) speakSlide(current);
+  }
+
+  function speakSlide(n) {
+    if (synth.speaking) synth.cancel();
+    if (keepAliveTimer) clearInterval(keepAliveTimer);
+    if (autoTimer) clearTimeout(autoTimer);
+
+    const fill = document.getElementById('auto-fill');
+    fill.style.transition = 'none';
+    fill.style.width = '0%';
+
+    const text = narrations[n];
+    if (!text) return;
+
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 0.88;
+    utter.pitch = 1.0;
+    utter.volume = 1.0;
+
+    // Estimate duration based on word count
+    const wordCount = text.split(' ').length;
+    const estimatedMs = (wordCount / 0.88) * 60 / 140 * 1000;
+
+    utter.onstart = () => {
+      document.getElementById('narration-status').textContent = '🔊 Speaking...';
+      fill.style.transition = `width ${estimatedMs}ms linear`;
+      fill.style.width = '100%';
+
+      keepAliveTimer = setInterval(() => {
+        if (synth.speaking) { synth.pause(); synth.resume(); }
+      }, 9000);
+    };
+
+    utter.onend = () => {
+      document.getElementById('narration-status').textContent = '✅ Done — next slide in 3s';
+      if (keepAliveTimer) clearInterval(keepAliveTimer);
+      // Auto advance after 3 seconds
+      if (current < TOTAL) {
+        autoTimer = setTimeout(() => {
+          current++;
+          updateSlide();
+        }, 3000);
+      }
+    };
+
+    utter.onerror = () => {
+      document.getElementById('narration-status').textContent = '⚠️ Audio error';
+      if (keepAliveTimer) clearInterval(keepAliveTimer);
+    };
+
+    synth.speak(utter);
+  }
+
+  function nextSlide() {
+    if (autoTimer) clearTimeout(autoTimer);
+    if (current < TOTAL) { current++; updateSlide(); }
+  }
+
+  function prevSlide() {
+    if (autoTimer) clearTimeout(autoTimer);
+    if (current > 1) { current--; updateSlide(); }
+  }
+
+  function revealAnswer(id) {
+    const el = document.getElementById(id);
+    el.style.display = el.style.display === 'block' ? 'none' : 'block';
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ') nextSlide();
+    if (e.key === 'ArrowLeft') prevSlide();
+  });
+
+  // Start on first click
+  document.body.addEventListener('click', function startNarration() {
+    started = true;
+    speakSlide(current);
+    document.getElementById('narration-status').textContent = '🔊 Speaking...';
+    document.body.removeEventListener('click', startNarration);
+  });
+</script>
+</body>
+</html>
